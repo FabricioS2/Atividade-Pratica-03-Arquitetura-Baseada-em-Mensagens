@@ -1,6 +1,85 @@
+// // 'use client';
+
+// // import { useState, useEffect } from 'react';
+// // import { connectToBroker, TruckTelemetry } from '@/lib/mqttClient';
+// // import TruckCard from './TruckCard';
+
+// // export default function Dashboard() {
+// //   const [trucks, setTrucks] = useState<Record<string, TruckTelemetry>>({});
+// //   const [connected, setConnected] = useState(false);
+// //   const [error, setError] = useState<string | null>(null);
+
+// //   useEffect(() => {
+// //     const brokerUrl = process.env.NEXT_PUBLIC_MQTT_BROKER;
+// //     if (!brokerUrl) {
+// //       setError('Variável NEXT_PUBLIC_MQTT_BROKER não definida');
+// //       return;
+// //     }
+
+// //     const client = connectToBroker(brokerUrl, (topic, data) => {
+// //       setConnected(true);
+// //       setTrucks((prev) => ({
+// //         ...prev,
+// //         [data.truck_id]: data,
+// //       }));
+// //     });
+
+// //     // Timeout para detectar falha na conexão (opcional)
+// //     const timeout = setTimeout(() => {
+// //       if (!connected) setError('Conexão MQTT não estabelecida. Verifique o broker.');
+// //     }, 5000);
+
+// //     return () => {
+// //       clearTimeout(timeout);
+// //       if (client) client.end();
+// //     };
+// //   }, [connected]);
+
+// //   if (error) {
+// //     return (
+// //       <div className="p-4 text-red-600 bg-red-50 rounded border border-red-200">
+// //         <h2 className="font-bold">Erro de conexão</h2>
+// //         <p>{error}</p>
+// //         <p className="text-sm mt-2">Certifique-se de que o broker MQTT está rodando e configurado corretamente.</p>
+// //       </div>
+// //     );
+// //   }
+
+// //   return (
+// //     <div className="container mx-auto p-4">
+// //       <header className="mb-6 flex justify-between items-center">
+// //         <h1 className="text-3xl font-bold text-gray-800">
+// //           🚛 Frota Refrigerada - Monitoramento em Tempo Real
+// //         </h1>
+// //         <div
+// //           className={`px-3 py-1 rounded-full text-sm font-medium ${
+// //             connected ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+// //           }`}
+// //         >
+// //           {connected ? '● Conectado' : '○ Conectando...'}
+// //         </div>
+// //       </header>
+
+// //       {Object.keys(trucks).length === 0 ? (
+// //         <div className="text-center text-gray-500 py-12 bg-white rounded-lg shadow">
+// //           <p className="text-lg">Aguardando dados dos caminhões...</p>
+// //           <p className="text-sm">Certifique-se de que o simulador MQTT está enviando mensagens.</p>
+// //         </div>
+// //       ) : (
+// //         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+// //           {Object.values(trucks).map((truck) => (
+// //             <TruckCard key={truck.truck_id} truck={truck} />
+// //           ))}
+// //         </div>
+// //       )}
+// //     </div>
+// //   );
+// // }
+
+
 // 'use client';
 
-// import { useState, useEffect } from 'react';
+// import { useState, useEffect, useRef } from 'react';
 // import { connectToBroker, TruckTelemetry } from '@/lib/mqttClient';
 // import TruckCard from './TruckCard';
 
@@ -8,6 +87,7 @@
 //   const [trucks, setTrucks] = useState<Record<string, TruckTelemetry>>({});
 //   const [connected, setConnected] = useState(false);
 //   const [error, setError] = useState<string | null>(null);
+//   const connectedRef = useRef(false); // para evitar race conditions no timeout
 
 //   useEffect(() => {
 //     const brokerUrl = process.env.NEXT_PUBLIC_MQTT_BROKER;
@@ -16,31 +96,49 @@
 //       return;
 //     }
 
+//     let isMounted = true;
+//     let timeoutId: NodeJS.Timeout;
+
 //     const client = connectToBroker(brokerUrl, (topic, data) => {
+//       if (!isMounted) return;
+      
+//       console.log(`📨 Mensagem recebida - Tópico: ${topic}`, data);
+      
 //       setConnected(true);
-//       setTrucks((prev) => ({
-//         ...prev,
-//         [data.truck_id]: data,
-//       }));
+//       connectedRef.current = true;
+      
+//       setTrucks((prev) => {
+//         const newTrucks = { ...prev, [data.truck_id]: data };
+//         console.log(`Caminhões atuais: ${Object.keys(newTrucks).length}`, Object.keys(newTrucks));
+//         return newTrucks;
+//       });
 //     });
 
-//     // Timeout para detectar falha na conexão (opcional)
-//     const timeout = setTimeout(() => {
-//       if (!connected) setError('Conexão MQTT não estabelecida. Verifique o broker.');
+//     // Timeout apenas se após 5 segundos ainda não conectou
+//     timeoutId = setTimeout(() => {
+//       if (isMounted && !connectedRef.current) {
+//         setError('Conexão MQTT não estabelecida. Verifique o broker.');
+//       }
 //     }, 5000);
 
 //     return () => {
-//       clearTimeout(timeout);
-//       if (client) client.end();
+//       isMounted = false;
+//       clearTimeout(timeoutId);
+//       if (client) {
+//         client.end();
+//         console.log('Cliente MQTT finalizado');
+//       }
 //     };
-//   }, [connected]);
+//   }, []); // dependência vazia = executa uma única vez na montagem
 
 //   if (error) {
 //     return (
 //       <div className="p-4 text-red-600 bg-red-50 rounded border border-red-200">
 //         <h2 className="font-bold">Erro de conexão</h2>
 //         <p>{error}</p>
-//         <p className="text-sm mt-2">Certifique-se de que o broker MQTT está rodando e configurado corretamente.</p>
+//         <p className="text-sm mt-2">
+//           Certifique-se de que o broker MQTT está rodando e configurado corretamente.
+//         </p>
 //       </div>
 //     );
 //   }
@@ -63,7 +161,9 @@
 //       {Object.keys(trucks).length === 0 ? (
 //         <div className="text-center text-gray-500 py-12 bg-white rounded-lg shadow">
 //           <p className="text-lg">Aguardando dados dos caminhões...</p>
-//           <p className="text-sm">Certifique-se de que o simulador MQTT está enviando mensagens.</p>
+//           <p className="text-sm">
+//             Certifique-se de que o simulador MQTT está enviando mensagens.
+//           </p>
 //         </div>
 //       ) : (
 //         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -80,14 +180,104 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import toast, { Toaster } from 'react-hot-toast';
 import { connectToBroker, TruckTelemetry } from '@/lib/mqttClient';
 import TruckCard from './TruckCard';
+
+// ========== LIMITES (mesmos do microserviço) ==========
+const TEMP_MIN_C = -25.0;
+const TEMP_MAX_C = -10.0;
+const HUMIDITY_MAX_PCT = 90.0;
+const SPEED_MAX_KMH = 80.0;
+const DOOR_OPEN_MAX_SEC = 120.0; // segundos
+
+// Controle de cooldown para evitar spam de alertas (ms)
+const ALERT_COOLDOWN_MS = 30000; // 30 segundos
 
 export default function Dashboard() {
   const [trucks, setTrucks] = useState<Record<string, TruckTelemetry>>({});
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const connectedRef = useRef(false); // para evitar race conditions no timeout
+  const connectedRef = useRef(false);
+
+  // Controle de tempo de porta aberta e cooldown
+  const doorOpenStartRef = useRef<Record<string, number>>({});
+  const doorAlertSentRef = useRef<Record<string, boolean>>({});
+  const lastAlertTimeRef = useRef<Record<string, Record<string, number>>>({});
+
+  // Função auxiliar para verificar cooldown
+  const shouldSendAlert = (truckId: string, alertType: string): boolean => {
+    const now = Date.now();
+    const last = lastAlertTimeRef.current[truckId]?.[alertType] || 0;
+    if (now - last < ALERT_COOLDOWN_MS) return false;
+    if (!lastAlertTimeRef.current[truckId]) lastAlertTimeRef.current[truckId] = {};
+    lastAlertTimeRef.current[truckId][alertType] = now;
+    return true;
+  };
+
+  // Processamento de alertas
+  const handleAlerts = (truckId: string, data: TruckTelemetry) => {
+    // 1. Temperatura
+    const temp = data.temperature;
+    if (temp < TEMP_MIN_C && shouldSendAlert(truckId, 'temp_low')) {
+      toast.error(`${truckId}: Temperatura MUITO BAIXA (${temp}°C < ${TEMP_MIN_C}°C)`, {
+        icon: '❄️',
+        duration: 5000,
+      });
+    } else if (temp > TEMP_MAX_C && shouldSendAlert(truckId, 'temp_high')) {
+      toast.error(`${truckId}: Temperatura MUITO ALTA (${temp}°C > ${TEMP_MAX_C}°C)`, {
+        icon: '🔥',
+        duration: 5000,
+      });
+    }
+
+    // 2. Umidade
+    const hum = data.humidity;
+    if (hum > HUMIDITY_MAX_PCT && shouldSendAlert(truckId, 'humidity')) {
+      toast.warning(`${truckId}: Umidade elevada (${hum}% > ${HUMIDITY_MAX_PCT}%)`, {
+        icon: '💧',
+        duration: 5000,
+      });
+    }
+
+    // 3. Velocidade
+    const speed = data.speed;
+    if (speed > SPEED_MAX_KMH && shouldSendAlert(truckId, 'speed')) {
+      toast.warning(`${truckId}: Velocidade excessiva (${speed} km/h > ${SPEED_MAX_KMH} km/h)`, {
+        icon: '🚛💨',
+        duration: 5000,
+      });
+    }
+
+    // 4. Porta aberta por tempo prolongado
+    const isDoorOpen = data.door === 'aberta';
+    const now = Date.now();
+
+    if (isDoorOpen) {
+      // Se ainda não registramos o início da abertura, faz agora
+      if (!doorOpenStartRef.current[truckId]) {
+        doorOpenStartRef.current[truckId] = now;
+        doorAlertSentRef.current[truckId] = false;
+      } else {
+        const openDuration = (now - doorOpenStartRef.current[truckId]) / 1000;
+        if (openDuration > DOOR_OPEN_MAX_SEC && !doorAlertSentRef.current[truckId]) {
+          if (shouldSendAlert(truckId, 'door_open')) {
+            toast.error(
+              `${truckId}: Porta aberta há ${Math.floor(openDuration)} segundos (limite: ${DOOR_OPEN_MAX_SEC}s)`,
+              { icon: '🚪⚠️', duration: 7000 }
+            );
+            doorAlertSentRef.current[truckId] = true;
+          }
+        }
+      }
+    } else {
+      // Porta fechada: resetar controles
+      if (doorOpenStartRef.current[truckId]) {
+        delete doorOpenStartRef.current[truckId];
+        delete doorAlertSentRef.current[truckId];
+      }
+    }
+  };
 
   useEffect(() => {
     const brokerUrl = process.env.NEXT_PUBLIC_MQTT_BROKER;
@@ -101,20 +291,22 @@ export default function Dashboard() {
 
     const client = connectToBroker(brokerUrl, (topic, data) => {
       if (!isMounted) return;
-      
+
       console.log(`📨 Mensagem recebida - Tópico: ${topic}`, data);
-      
       setConnected(true);
       connectedRef.current = true;
-      
+
+      // Atualiza estado dos caminhões
       setTrucks((prev) => {
         const newTrucks = { ...prev, [data.truck_id]: data };
-        console.log(`Caminhões atuais: ${Object.keys(newTrucks).length}`, Object.keys(newTrucks));
+        console.log(`Caminhões atuais: ${Object.keys(newTrucks).length}`);
         return newTrucks;
       });
+
+      // Dispara alertas com os dados recebidos
+      handleAlerts(data.truck_id, data);
     });
 
-    // Timeout apenas se após 5 segundos ainda não conectou
     timeoutId = setTimeout(() => {
       if (isMounted && !connectedRef.current) {
         setError('Conexão MQTT não estabelecida. Verifique o broker.');
@@ -129,7 +321,7 @@ export default function Dashboard() {
         console.log('Cliente MQTT finalizado');
       }
     };
-  }, []); // dependência vazia = executa uma única vez na montagem
+  }, []);
 
   if (error) {
     return (
@@ -145,6 +337,7 @@ export default function Dashboard() {
 
   return (
     <div className="container mx-auto p-4">
+      <Toaster position="top-right" reverseOrder={false} />
       <header className="mb-6 flex justify-between items-center">
         <h1 className="text-3xl font-bold text-gray-800">
           🚛 Frota Refrigerada - Monitoramento em Tempo Real
