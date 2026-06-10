@@ -407,7 +407,7 @@ def print_mqtt_message(topic: str, payload: str):
 
 def main():
     # Configura cliente MQTT
-    client = mqtt.Client()
+    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
     client.on_connect = on_connect
     client.connect(MQTT_BROKER, MQTT_PORT, MQTT_KEEPALIVE)
     client.loop_start()
