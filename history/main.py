@@ -44,6 +44,7 @@ DOOR_OPEN_MAX_SEC = float(os.environ.get("DOOR_OPEN_MAX_SEC", "120.0"))
 # Webhook opcional (Slack, Discord, etc.)
 ALERT_WEBHOOK_URL = os.environ.get("ALERT_WEBHOOK_URL", "")
 ENABLE_CONSOLE_ALERTS = os.environ.get("ENABLE_CONSOLE_ALERTS", "true").lower() == "true"
+NOTIFICATIONS_URL = os.environ.get("NOTIFICATIONS_URL", "http://notifications:8001")
 
 # Configuração de logging
 logging.basicConfig(
@@ -297,6 +298,7 @@ def on_message(client, userdata, msg):
             logger.error(f"Erro ao salvar no banco: {e}")
         finally:
             db.close()
+            requests.post(f"{NOTIFICATIONS_URL}/telemetry/{data['truck_id']}", json=data, timeout=1)
     except json.JSONDecodeError:
         logger.error(f"Payload inválido (JSON): {msg.payload}")
     except KeyError as e:

@@ -234,7 +234,7 @@ export default function Dashboard() {
     // 2. Umidade
     const hum = data.humidity;
     if (hum > HUMIDITY_MAX_PCT && shouldSendAlert(truckId, 'humidity')) {
-      toast.warning(`${truckId}: Umidade elevada (${hum}% > ${HUMIDITY_MAX_PCT}%)`, {
+      toast.error(`${truckId}: Umidade elevada (${hum}% > ${HUMIDITY_MAX_PCT}%)`, {
         icon: '💧',
         duration: 5000,
       });
@@ -243,7 +243,7 @@ export default function Dashboard() {
     // 3. Velocidade
     const speed = data.speed;
     if (speed > SPEED_MAX_KMH && shouldSendAlert(truckId, 'speed')) {
-      toast.warning(`${truckId}: Velocidade excessiva (${speed} km/h > ${SPEED_MAX_KMH} km/h)`, {
+      toast.error(`${truckId}: Velocidade excessiva (${speed} km/h > ${SPEED_MAX_KMH} km/h)`, {
         icon: '🚛💨',
         duration: 5000,
       });

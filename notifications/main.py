@@ -169,13 +169,5 @@ async def health():
 
 # ========== PONTO DE ENTRADA ==========
 if __name__ == "__main__":
-    print(f"\n📡 MICROSSERVIÇO FASTAPI - MONITORAMENTO")
-    print(f"Temperatura: [{TEMP_MIN_C}°C, {TEMP_MAX_C}°C]")
-    print(f"Umidade max : {HUMIDITY_MAX_PCT}%")
-    print(f"Velocidade max: {SPEED_MAX_KMH} km/h")
-    print(f"Porta aberta max: {DOOR_OPEN_MAX_SEC}s")
-    print(f"Webhook: {ALERT_WEBHOOK_URL or 'não configurado'}")
-    print("Iniciando servidor em http://0.0.0.0:8000")
-    print("Documentação: http://localhost:8000/docs\n")
-    
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    port = int(os.environ.get("NOTIFICATIONS_PORT", 8001))
+    uvicorn.run(app, host="0.0.0.0", port=port)

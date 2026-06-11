@@ -21,7 +21,9 @@ type MessageHandler = (topic: string, data: TruckTelemetry) => void;
 
 export function connectToBroker(
   brokerUrl: string,
-  onMessage: MessageHandler
+  onMessage: MessageHandler,
+  onConnect?: () => void,
+  onError?: (err: Error) => void
 ): MqttClient {
   if (client && client.connected) return client;
 
@@ -29,6 +31,7 @@ export function connectToBroker(
 
   client.on('connect', () => {
     console.log('[MQTT] Conectado ao broker:', brokerUrl);
+    if (onConnect) onConnect();            // notifica o componente
     client?.subscribe('fleet/+/telemetry', (err) => {
       if (err) console.error('[MQTT] Erro ao subscrever:', err);
       else console.log('[MQTT] Inscrito em fleet/+/telemetry');
@@ -46,6 +49,7 @@ export function connectToBroker(
 
   client.on('error', (err) => {
     console.error('[MQTT] Erro de conexão:', err);
+    if (onError) onError(err);
   });
 
   client.on('close', () => {

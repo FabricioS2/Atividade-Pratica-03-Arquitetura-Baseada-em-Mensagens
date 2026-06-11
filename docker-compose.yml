@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    ports:
+      - "1883:1883"
+      - "9002:9001"
+    volumes:
+      - ./mosquitto/config:/mosquitto/config
+    restart: unless-stopped
+
+  simulator:
+    build: ./simulator
+    environment:
+      - MQTT_BROKER=mosquitto
+      - MQTT_PORT=1883
+      - MQTT_TOPIC_PREFIX=fleet
+    depends_on:
+      - mosquitto
+    restart: unless-stopped
+
+  history:
+    build: ./history
+    ports:
+      - "8000:8000"
+    environment:
+      - MQTT_BROKER=mosquitto
+      - MQTT_PORT=1883
+      - MQTT_TOPIC=fleet/+/telemetry
+      - DATABASE_URL=sqlite:///./data/telemetry.db
+      - NOTIFICATIONS_URL=http://notifications:8001
+    volumes:
+      - ./history/data:/app/data
+    depends_on:
+      - mosquitto
+      - notifications
+    restart: unless-stopped
+
+  notifications:
+    build: ./notifications
+    ports:
+      - "8001:8001"
+    environment:
+      - NOTIFICATIONS_PORT=8001
+      - TEMP_MIN_C=-25
+      - TEMP_MAX_C=-10
+      - HUMIDITY_MAX_PCT=90
+      - SPEED_MAX_KMH=80
+      - DOOR_OPEN_MAX_SEC=120
+      - ENABLE_CONSOLE_ALERTS=true
+    restart: unless-stopped
+
+  dashboard:
+    build:
+      context: ./fleet-dashboard
+      args:
+        - NEXT_PUBLIC_API_URL=http://history:8000
+        - NEXT_PUBLIC_NOTIFICATIONS_URL=http://notifications:8001
+        - NEXT_PUBLIC_MQTT_BROKER=ws://localhost:9002
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://history:8000
+      - NEXT_PUBLIC_NOTIFICATIONS_URL=http://notifications:8001
+      - NEXT_PUBLIC_MQTT_BROKER=ws://localhost:9002
+    depends_on:
+      - history
+      - mosquitto
+    restart: unless-stopped
