@@ -21,8 +21,7 @@ export default function TruckCard({ truck }: TruckCardProps) {
 
   return (
     /* max-w-[420px] impede que o card estique demais em telas largas */
-    <div className="w-full max-w-[420px] bg-white rounded-2xl border border-gray-100 p-4 shadow-sm hover:shadow-md transition-all duration-300 flex flex-col gap-4">
-      
+<div className="w-full max-w-[380px] flex-none bg-white rounded-2xl border border-gray-100 p-4 shadow-sm hover:shadow-md transition-all duration-300 flex flex-col gap-10">      
       {/* Imagem de Destaque com tamanho controlado */}
       <div className="relative w-full h-36 bg-gray-100 rounded-xl overflow-hidden group">
         <img 

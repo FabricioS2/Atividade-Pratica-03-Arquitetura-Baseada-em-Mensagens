@@ -173,7 +173,7 @@ export default function Dashboard() {
           {connected ? '● Conectado' : '○ Conectando...'}
         </div>
       </header>
-
+      
       {Object.keys(trucks).length === 0 ? (
         <div className="text-center text-gray-500 py-12 bg-white rounded-xl border border-gray-100 shadow-sm">
           <p className="text-lg font-medium">Aguardando dados dos caminhões...</p>
@@ -187,7 +187,7 @@ export default function Dashboard() {
           - Adicionamos justify-items-center para casar com o max-w-[420px] do TruckCard
           - Em telas bem grandes (xl), alinhamos à esquerda se preferir (md:justify-items-start)
         */
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 justify-items-center md:justify-items-start">
+        <div className="flex flex-wrap ">
           {Object.values(trucks).map((truck) => (
             <TruckCard key={truck.truck_id} truck={truck} />
           ))}
