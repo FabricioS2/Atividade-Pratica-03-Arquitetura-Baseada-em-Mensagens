@@ -7,17 +7,11 @@ interface TruckCardProps {
 export default function TruckCard({ truck }: TruckCardProps) {
   const isDoorOpen = truck.door === 'aberta';
 
-  // Lógica de cores mais suave e moderna para a temperatura interna
-  const getTempStyles = (temp: number) => {
-    if (temp < -25) return 'bg-blue-50 text-blue-700 border-blue-200';
-    if (temp > -10) return 'bg-red-50 text-red-700 border-red-200 animate-pulse';
-    return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+  const getTempBadgeStyles = (temp: number) => {
+    if (temp < -25) return 'bg-blue-50 text-blue-600 border-blue-100';
+    if (temp > -10) return 'bg-rose-50 text-rose-600 border-rose-100 animate-pulse';
+    return 'bg-emerald-50 text-emerald-600 border-emerald-100';
   };
-
-  // Bordas e fundos baseados no estado crítico da porta
-  const cardStyles = isDoorOpen
-    ? 'bg-amber-50/60 border-amber-200 ring-2 ring-amber-500/10'
-    : 'bg-white border-gray-100 shadow-sm';
 
   const formattedDate = new Date(truck.timestamp).toLocaleString('pt-BR', {
     hour: '2-digit',
@@ -26,75 +20,82 @@ export default function TruckCard({ truck }: TruckCardProps) {
   });
 
   return (
-    <div className={`rounded-2xl border p-5 transition-all duration-300 hover:shadow-md ${cardStyles}`}>
-      {/* Cabeçalho do Card */}
-      <div className="flex justify-between items-center mb-4">
-        <div>
-          <span className="text-xs font-bold uppercase tracking-wider text-gray-400">ID do Veículo</span>
-          <h2 className="text-xl font-bold text-gray-800 tracking-tight">{truck.truck_id}</h2>
-        </div>
-        {/* Badge de Temperatura Interna */}
-        <div className={`px-3 py-1.5 rounded-xl border text-sm font-mono font-bold shadow-sm ${getTempStyles(truck.temperature)}`}>
+    /* max-w-[420px] impede que o card estique demais em telas largas */
+    <div className="w-full max-w-[420px] bg-white rounded-2xl border border-gray-100 p-4 shadow-sm hover:shadow-md transition-all duration-300 flex flex-col gap-4">
+      
+      {/* Imagem de Destaque com tamanho controlado */}
+      <div className="relative w-full h-36 bg-gray-100 rounded-xl overflow-hidden group">
+        <img 
+          src="https://images.unsplash.com/photo-1601584115197-04ecc0da31d7?auto=format&fit=crop&q=80&w=600" 
+          alt="Caminhão em trânsito" 
+          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+        />
+        <div className={`absolute top-3 right-3 px-2.5 py-1 rounded-lg border text-xs font-mono font-bold shadow-sm backdrop-blur-sm ${getTempBadgeStyles(truck.temperature)}`}>
           ❄️ {truck.temperature.toFixed(1)}°C
         </div>
       </div>
 
-      <hr className="border-gray-100 my-3" />
-
-      {/* Seção 1: Status da Carga (Interna) */}
-      <div className="mb-4">
-        <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400 block mb-2">Ambiente Interno (Baú)</span>
-        <div className="grid grid-cols-2 gap-3">
-          {/* Status da Porta transformado em Badge */}
-          <div className="bg-gray-50/50 p-2.5 rounded-xl border border-gray-100 flex flex-col justify-between">
-            <span className="text-xs text-gray-500">Porta</span>
-            <span className={`text-xs font-bold uppercase mt-1 inline-block px-2 py-0.5 rounded-md w-max ${
-              isDoorOpen ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
-            }`}>
-              {truck.door}
-            </span>
-          </div>
-
-          <div className="bg-gray-50/50 p-2.5 rounded-xl border border-gray-100 flex flex-col">
-            <span className="text-xs text-gray-500">Umidade Baú</span>
-            <span className="text-sm font-semibold text-gray-800 mt-1">💧 {truck.humidity}%</span>
-          </div>
-        </div>
+      {/* Título / Detalhe do ID */}
+      <div>
+        <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-0.5">Identificação</span>
+        <h3 className="text-base font-bold text-gray-800">Veículo #{truck.truck_id}</h3>
       </div>
 
-      {/* Seção 2: Telemetria e Exterior */}
-      <div className="space-y-2 text-xs text-gray-600 bg-gray-50/30 p-3 rounded-xl border border-gray-100">
-        <div className="flex justify-between">
-          <span className="text-gray-500">🚚 Velocidade:</span>
-          <span className={`font-semibold ${truck.speed > 80 ? 'text-red-600 font-bold' : 'text-gray-800'}`}>
+      {/* Lista de Informações */}
+      <div className="flex flex-col gap-2 text-xs">
+        <div className="flex justify-between items-center py-0.5">
+          <span className="text-gray-500 font-medium">Status da Porta</span>
+          <span className={`font-bold px-2 py-0.5 rounded text-[10px] uppercase tracking-wide ${
+            isDoorOpen ? 'bg-amber-50 text-amber-700 border border-amber-100' : 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+          }`}>
+            {truck.door}
+          </span>
+        </div>
+
+        <div className="flex justify-between items-center border-t border-gray-50 pt-2">
+          <span className="text-gray-500 font-medium">Umidade do Baú</span>
+          <span className="font-semibold text-gray-800">{truck.humidity}%</span>
+        </div>
+
+        <div className="flex justify-between items-center border-t border-gray-50 pt-2">
+          <span className="text-gray-500 font-medium">Velocidade Atual</span>
+          <span className={`font-semibold ${truck.speed > 80 ? 'text-rose-600 font-bold' : 'text-gray-800'}`}>
             {truck.speed} km/h
           </span>
         </div>
-        <div className="flex justify-between">
-          <span className="text-gray-500">📊 Odômetro:</span>
-          <span className="font-semibold text-gray-800">{truck.total_odometer.toLocaleString()} km</span>
+
+        <div className="flex justify-between items-center border-t border-gray-50 pt-2">
+          <span className="text-gray-500 font-medium">Odômetro Total</span>
+          <span className="font-semibold text-gray-800">{truck.total_odometer.toLocaleString('pt-BR')} km</span>
         </div>
-        <div className="flex justify-between">
-          <span className="text-gray-500">🌡️ Ext. (Temp/Umid):</span>
-          <span className="font-medium text-gray-700">
-            {truck.external_temperature}°C / {truck.external_humidity}%
+
+        <div className="flex justify-between items-center border-t border-gray-50 pt-2">
+          <span className="text-gray-500 font-medium">Ambiente Externo</span>
+          <span className="text-gray-600 font-medium">
+            {truck.external_temperature}°C / {truck.external_humidity}% UR
           </span>
         </div>
-        <div className="pt-1 border-t border-gray-100 flex justify-between items-center text-[11px]">
-          <span className="text-gray-400">📍 Projeção Local:</span>
-          <span className="font-mono text-gray-500 bg-white px-1.5 py-0.5 rounded border border-gray-100">
+
+        <div className="flex justify-between items-center border-t border-gray-50 pt-2">
+          <span className="text-gray-500 font-medium">Localização (Lat, Lon)</span>
+          <span className="font-mono text-blue-600 hover:underline cursor-pointer bg-blue-50/50 px-1.5 py-0.5 rounded text-[11px]">
             {truck.lat.toFixed(4)}, {truck.lon.toFixed(4)}
           </span>
         </div>
       </div>
 
-      {/* Rodapé com o horário */}
-      <div className="mt-3 flex items-center justify-between text-[11px] text-gray-400">
-        <span className="flex items-center gap-1">
-          <span className={`h-1.5 w-1.5 rounded-full bg-emerald-500 ${isDoorOpen ? 'animate-ping' : ''}`}></span>
-          Atualizado às {formattedDate}
+      {/* Rodapé sutil de atualização */}
+      <div className="border-t border-gray-100 pt-2 flex items-center justify-between text-[10px] text-gray-400">
+        <span className="flex items-center gap-1.5">
+          <span className="relative flex h-2 w-2">
+            <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${isDoorOpen ? 'bg-amber-400' : 'bg-emerald-400'}`}></span>
+            <span className={`relative inline-flex rounded-full h-2 w-2 ${isDoorOpen ? 'bg-amber-500' : 'bg-emerald-500'}`}></span>
+          </span>
+          Tempo real
         </span>
+        <span className="font-medium">{formattedDate}</span>
       </div>
+
     </div>
   );
 }

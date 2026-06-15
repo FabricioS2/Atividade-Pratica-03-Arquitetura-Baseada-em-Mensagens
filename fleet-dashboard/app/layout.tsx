@@ -51,7 +51,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="pt-BR">
-      <body className={inter.className}>{children}</body>
+      <body className={inter.className}>
+        <header></header>
+        <main>{children}</main>
+      </body>
     </html>
   );
 }
