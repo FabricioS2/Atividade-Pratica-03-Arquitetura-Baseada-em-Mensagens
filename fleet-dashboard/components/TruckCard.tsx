@@ -21,8 +21,9 @@ export default function TruckCard({ truck }: TruckCardProps) {
 
   return (
     /* max-w-[420px] impede que o card estique demais em telas largas */
-<div className="w-full max-w-[380px] flex-none bg-white rounded-2xl border border-gray-100 p-4 shadow-sm hover:shadow-md transition-all duration-300 flex flex-col gap-10">      
+<div className="w-full max-w-[380px] flex-none bg-white rounded-2xl border border-gray-100 p-4 shadow-sm hover:shadow-md transition-all duration-300 flex flex-col gap-10 rounded-sm">      
       {/* Imagem de Destaque com tamanho controlado */}
+      
       <div className="relative w-full h-36 bg-gray-100 rounded-xl overflow-hidden group">
         <img 
           src="https://images.unsplash.com/photo-1601584115197-04ecc0da31d7?auto=format&fit=crop&q=80&w=600" 
