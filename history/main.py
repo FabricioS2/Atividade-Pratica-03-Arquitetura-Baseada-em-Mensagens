@@ -34,6 +34,10 @@ MQTT_BROKER = os.environ.get("MQTT_BROKER", "localhost")
 MQTT_PORT = int(os.environ.get("MQTT_PORT", 1883))
 MQTT_TOPIC = os.environ.get("MQTT_TOPIC", "fleet/+/telemetry")
 MQTT_QOS = int(os.environ.get("MQTT_QOS", 0))
+
+# CORREÇÃO: Adicionada a definição do prefixo do tópico que estava faltando
+MQTT_TOPIC_PREFIX = os.environ.get("MQTT_TOPIC_PREFIX", "fleet")
+
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./telemetry.db")
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
 API_HOST = os.environ.get("API_HOST", "0.0.0.0")
@@ -529,6 +533,56 @@ def get_latest_notifications(truck_id: str, limit: int = 10, db: Session = Depen
     records = db.query(Notification).filter(Notification.truck_id == truck_id)\
         .order_by(desc(Notification.timestamp)).limit(limit).all()
     return records
+
+# ========== NOVO ENDPOINT: CRIAR E PUBLICAR TELEMETRIA VIA FRONTEND ==========
+
+@app.post("/telemetry", tags=["Telemetry"])
+def create_telemetry(payload: TelemetryIn, db: Session = Depends(get_db)):
+    """
+    Recebe telemetria do Frontend, salva no banco e encaminha via MQTT 
+    para simular um dispositivo real transmitindo no tópico.
+    """
+    try:
+        dt = datetime.fromisoformat(payload.timestamp.replace("Z", "+00:00"))
+    except ValueError:
+        dt = datetime.now(timezone.utc)
+
+    telemetry = Telemetry(
+        truck_id=payload.truck_id,
+        timestamp=dt,
+        temperature=payload.temperature,
+        humidity=payload.humidity,
+        door=payload.door,
+        lat=payload.lat,
+        lon=payload.lon,
+        speed=payload.speed,
+        total_odometer=payload.total_odometer,
+        trip_odometer=payload.trip_odometer,
+        external_temperature=payload.external_temperature,
+        external_humidity=payload.external_humidity,
+    )
+    
+    try:
+        db.add(telemetry)
+        db.commit()
+        
+        data_dict = payload.model_dump()
+        check_and_notify(data_dict, db)
+        
+        if mqtt_client and mqtt_client.is_connected():
+            topic = f"{MQTT_TOPIC_PREFIX}/{payload.truck_id}/telemetry"
+            payload_json = json.dumps(data_dict, ensure_ascii=False)
+            
+            mqtt_client.publish(topic, payload_json, qos=0, retain=False)
+            logger.info(f"Telemetria manual injetada e publicada no tópico: {topic}")
+            
+        return {"status": "sucesso", "message": f"Caminhão {payload.truck_id} inicializado e publicado."}
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Erro ao processar telemetria manual: {e}")
+        raise HTTPException(status_code=500, detail=f"Erro interno no servidor: {e}")
+
 
 if __name__ == "__main__":
     logger.info(f"Iniciando servidor FastAPI em {API_HOST}:{API_PORT}")
