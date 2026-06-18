@@ -4,7 +4,7 @@ Microserviço FastAPI para capturar e armazenar telemetria e notificações de c
 - Subscreve tópicos MQTT (fleet/+/telemetry)
 - Armazena dados em banco de dados SQLite (ou PostgreSQL)
 - Gera e persiste notificações baseadas em limites configuráveis
-- Disponibiliza API REST para consulta e health check
+- Disponibiliza API REST para consulta, gerenciamento de usuários controladores e health check
 """
 
 import json
@@ -17,12 +17,17 @@ from contextlib import asynccontextmanager
 
 import paho.mqtt.client as mqtt
 from fastapi import FastAPI, Depends, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy import create_engine, Column, String, Float, Integer, DateTime, Boolean, desc
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session
-from pydantic import BaseModel, Field
+from sqlalchemy.orm import declarative_base, sessionmaker, Session
+from pydantic import BaseModel, Field, ConfigDict
 import uvicorn
 import requests
+
+# Criptografia nativa e Tokens JWT (Sem dependência de passlib)
+import bcrypt
+import jwt
 
 # ========== CONFIGURAÇÕES ==========
 MQTT_BROKER = os.environ.get("MQTT_BROKER", "localhost")
@@ -45,6 +50,13 @@ DOOR_OPEN_MAX_SEC = float(os.environ.get("DOOR_OPEN_MAX_SEC", "120.0"))
 ALERT_WEBHOOK_URL = os.environ.get("ALERT_WEBHOOK_URL", "")
 ENABLE_CONSOLE_ALERTS = os.environ.get("ENABLE_CONSOLE_ALERTS", "true").lower() == "true"
 NOTIFICATIONS_URL = os.environ.get("NOTIFICATIONS_URL", "http://notifications:8001")
+
+# Configurações de Segurança e JWT
+SECRET_KEY = os.environ.get("JWT_SECRET", "sua_chave_secreta_super_segura_para_desenvolvimento")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
 # Configuração de logging
 logging.basicConfig(
@@ -85,9 +97,52 @@ class Notification(Base):
     message = Column(String, nullable=False)
     data_snapshot = Column(String, nullable=True)  # JSON snapshot da telemetria
 
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, unique=True, index=True, nullable=False)
+    hashed_password = Column(String, nullable=False)
+
+# Inicializa as tabelas do banco de dados (Telemetry, Notification e User)
 Base.metadata.create_all(bind=engine)
 
-# ========== SCHEMAS PYDANTIC ==========
+
+# ========== AUXILIARES DE CRIPTOGRAFIA (BCRYPT NATIVO) ==========
+def get_password_hash(password: str) -> str:
+    """Gera o hash da senha de forma segura usando bcrypt puro."""
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verifica se a senha em texto limpo corresponde ao hash do banco."""
+    try:
+        return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
+    except Exception:
+        return False
+
+
+# ==================== SEED AUTOMÁTICO DO USUÁRIO ADMIN ====================
+db_init = SessionLocal()
+try:
+    admin_exists = db_init.query(User).filter(User.email == "admin").first()
+    if not admin_exists:
+        logger.info("Nenhum usuário administrativo encontrado. Criando credenciais padrão...")
+        default_admin = User(
+            email="admin",
+            hashed_password=get_password_hash("admin")
+        )
+        db_init.add(default_admin)
+        db_init.commit()
+        logger.info("🔥 Usuário padrão criado com sucesso! Login: admin | Senha: admin")
+except Exception as e:
+    logger.error(f"Erro na rotina de inicialização de sementes (Seed): {e}")
+finally:
+    db_init.close()
+# ===========================================================================
+
+
+# ========== SCHEMAS PYDANTIC (ATUALIZADOS PARA V2) ==========
 class TelemetryIn(BaseModel):
     truck_id: str
     timestamp: str
@@ -116,9 +171,8 @@ class TelemetryOut(BaseModel):
     trip_odometer: float
     external_temperature: float
     external_humidity: float
-
-    class Config:
-        from_attributes = True
+    
+    model_config = ConfigDict(from_attributes=True)
 
 class NotificationOut(BaseModel):
     id: int
@@ -128,14 +182,18 @@ class NotificationOut(BaseModel):
     message: str
     data_snapshot: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
+
+class UserCreate(BaseModel):
+    email: str
+    password: str
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
 
 # ========== CONTROLE DE COOLDOWN (EVITAR SPAM) ==========
-# Estrutura: { truck_id: { alert_type: last_timestamp_ms } }
 last_alert_time: Dict[str, Dict[str, float]] = {}
-
-# Controle de porta aberta (tempo contínuo)
 door_open_start: Dict[str, float] = {}
 door_alert_sent: Dict[str, bool] = {}
 
@@ -151,9 +209,8 @@ def should_send_alert(truck_id: str, alert_type: str) -> bool:
     last_alert_time[truck_id][alert_type] = now_ms
     return True
 
-# ========== FUNÇÃO PARA SALVAR NOTIFICAÇÃO ==========
+# ========== FUNÇÕES DE NOTIFICAÇÃO ==========
 def save_notification(db: Session, truck_id: str, alert_type: str, message: str, snapshot: dict):
-    """Persiste a notificação no banco de dados."""
     notif = Notification(
         truck_id=truck_id,
         timestamp=datetime.now(timezone.utc),
@@ -165,9 +222,7 @@ def save_notification(db: Session, truck_id: str, alert_type: str, message: str,
     db.commit()
     logger.info(f"Notificação salva: {truck_id} - {alert_type} - {message}")
 
-# ========== FUNÇÃO PARA ENVIAR NOTIFICAÇÃO (WEBHOOK/CONSOLE) ==========
 def send_alert_notification(message: str, snapshot: dict):
-    """Envia alerta para webhook (se configurado) e console."""
     if ENABLE_CONSOLE_ALERTS:
         print("\n" + "=" * 80)
         print(f"🚨 {message}")
@@ -184,18 +239,14 @@ def send_alert_notification(message: str, snapshot: dict):
         except Exception as e:
             logger.error(f"Erro ao enviar webhook: {e}")
 
-# ========== LÓGICA DE AVALIAÇÃO E NOTIFICAÇÃO ==========
+# ========== LÓGICA DE AVALIAÇÃO DE SENSORES ==========
 def check_and_notify(data: dict, db: Session):
-    """Verifica os limites e gera notificações se necessário."""
     truck_id = data["truck_id"]
     temp = data["temperature"]
     humidity = data["humidity"]
     speed = data["speed"]
     door = data["door"]
-    now = datetime.now(timezone.utc)
-    timestamp_iso = data.get("timestamp", now.isoformat())
 
-    # --- Temperatura ---
     if temp < TEMP_MIN_C:
         if should_send_alert(truck_id, "temp_low"):
             msg = f"Temperatura MUITO BAIXA: {temp}°C < {TEMP_MIN_C}°C"
@@ -207,21 +258,18 @@ def check_and_notify(data: dict, db: Session):
             save_notification(db, truck_id, "temp_high", msg, data)
             send_alert_notification(f"Caminhão {truck_id}: {msg}", data)
 
-    # --- Umidade ---
     if humidity > HUMIDITY_MAX_PCT:
         if should_send_alert(truck_id, "humidity"):
             msg = f"Umidade elevada: {humidity}% > {HUMIDITY_MAX_PCT}%"
             save_notification(db, truck_id, "humidity", msg, data)
             send_alert_notification(f"Caminhão {truck_id}: {msg}", data)
 
-    # --- Velocidade ---
     if speed > SPEED_MAX_KMH:
         if should_send_alert(truck_id, "speed"):
             msg = f"Velocidade excessiva: {speed} km/h > {SPEED_MAX_KMH} km/h"
             save_notification(db, truck_id, "speed", msg, data)
             send_alert_notification(f"Caminhão {truck_id}: {msg}", data)
 
-    # --- Porta aberta por tempo prolongado ---
     current_time = datetime.now().timestamp()
     if door == "aberta":
         if truck_id not in door_open_start:
@@ -236,7 +284,6 @@ def check_and_notify(data: dict, db: Session):
                     send_alert_notification(f"Caminhão {truck_id}: {msg}", data)
                     door_alert_sent[truck_id] = True
     else:
-        # Porta fechada: reseta contagem
         if truck_id in door_open_start:
             del door_open_start[truck_id]
             door_alert_sent.pop(truck_id, None)
@@ -253,23 +300,18 @@ def on_connect(client, userdata, flags, reason_code, properties=None):
         logger.error(f"Falha na conexão MQTT, código {reason_code}")
 
 def on_message(client, userdata, msg):
-    """Callback chamada ao receber uma mensagem MQTT."""
     try:
         payload = msg.payload.decode("utf-8")
         data = json.loads(payload)
-        logger.debug(f"Mensagem recebida no tópico {msg.topic}: {payload}")
 
-        # Converte timestamp ISO para datetime
         timestamp_str = data.get("timestamp")
         if not timestamp_str:
-            logger.warning("Mensagem sem campo timestamp, ignorada")
             return
         try:
             dt = datetime.fromisoformat(timestamp_str)
         except ValueError:
             dt = datetime.strptime(timestamp_str, "%Y-%m-%dT%H:%M:%S.%f%z")
         
-        # Cria objeto para banco (telemetria)
         telemetry = Telemetry(
             truck_id=data["truck_id"],
             timestamp=dt,
@@ -286,28 +328,22 @@ def on_message(client, userdata, msg):
         )
         db = SessionLocal()
         try:
-            # Salva telemetria
             db.add(telemetry)
             db.commit()
-            logger.debug(f"Telemetria de {data['truck_id']} salva no banco")
-            
-            # Gera e salva notificações (usa a mesma sessão)
             check_and_notify(data, db)
         except Exception as e:
             db.rollback()
             logger.error(f"Erro ao salvar no banco: {e}")
         finally:
             db.close()
-            requests.post(f"{NOTIFICATIONS_URL}/telemetry/{data['truck_id']}", json=data, timeout=1)
-    except json.JSONDecodeError:
-        logger.error(f"Payload inválido (JSON): {msg.payload}")
-    except KeyError as e:
-        logger.error(f"Campo ausente na mensagem: {e}")
+            try:
+                requests.post(f"{NOTIFICATIONS_URL}/telemetry/{data['truck_id']}", json=data, timeout=1)
+            except Exception:
+                pass
     except Exception as e:
-        logger.error(f"Erro inesperado ao processar mensagem: {e}")
+        logger.error(f"Erro ao processar mensagem MQTT: {e}")
 
 def setup_mqtt():
-    """Inicializa e conecta o cliente MQTT."""
     global mqtt_client
     mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
     mqtt_client.on_connect = on_connect
@@ -328,13 +364,22 @@ async def lifespan(app: FastAPI):
         logger.info("Cliente MQTT desconectado")
 
 app = FastAPI(
-    title="Fleet Telemetry Service with Notifications",
-    description="Captura dados MQTT, armazena telemetria e gera notificações de anomalias",
-    version="2.0.0",
+    title="Fleet Telemetry Service with Notifications & Auth",
+    description="Captura dados MQTT, armazena telemetria e gerencia segurança de acesso",
+    version="2.5.0",
     lifespan=lifespan
 )
 
-# ========== DEPENDÊNCIAS ==========
+# ========== MIDDLEWARE CORS TOTALMENTE ABERTO (SEM CREDENCIAIS) ==========
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ========== DEPENDÊNCIAS DE BANCO ==========
 def get_db():
     db = SessionLocal()
     try:
@@ -342,7 +387,68 @@ def get_db():
     finally:
         db.close()
 
-# ========== ENDPOINTS ==========
+# ========== AUXILIAR DE TOKEN JWT ==========
+def create_access_token(data: dict):
+    to_encode = data.copy()
+    token = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    if isinstance(token, bytes):
+        return token.decode("utf-8")
+    return token
+
+def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    credentials_exception = HTTPException(
+        status_code=401,
+        detail="Não foi possível validar as credenciais de acesso.",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        email: str = payload.get("sub")
+        if email is None:
+            raise credentials_exception
+    except jwt.PyJWTError:
+        raise credentials_exception
+        
+    user = db.query(User).filter(User.email == email).first()
+    if user is None:
+        raise credentials_exception
+    return user
+
+# ========== ENDPOINTS DE AUTENTICAÇÃO ==========
+
+@app.post("/register", tags=["Autenticação"])
+def register(user_in: UserCreate, db: Session = Depends(get_db)):
+    """Cria uma nova conta de operador/controlador da frota."""
+    user_exists = db.query(User).filter(User.email == user_in.email).first()
+    if user_exists:
+        raise HTTPException(status_code=400, detail="Este e-mail já está cadastrado no sistema.")
+    
+    new_user = User(
+        email=user_in.email,
+        hashed_password=get_password_hash(user_in.password)
+    )
+    db.add(new_user)
+    db.commit()
+    return {"status": "sucesso", "message": "Usuário criado com sucesso!"}
+
+@app.post("/login", response_model=Token, tags=["Autenticação"])
+def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    """Valida as credenciais e retorna o Token de Acesso JWT para o Front-end."""
+    user = db.query(User).filter(User.email == form_data.username).first()
+    
+    if not user or not verify_password(form_data.password, user.hashed_password):
+        raise HTTPException(status_code=400, detail="E-mail ou senha incorretos.")
+    
+    access_token = create_access_token(data={"sub": user.email})
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@app.get("/users/me", tags=["Autenticação"])
+def read_users_me(current_user: User = Depends(get_current_user)):
+    """Retorna os dados do usuário conectado se o token enviado for válido."""
+    return {"id": current_user.id, "email": current_user.email}
+
+# ========== ENDPOINTS DE TELEMETRIA E NOTIFICAÇÕES ==========
+
 @app.get("/health", tags=["Health"])
 async def health_check():
     return {"status": "ok", "mqtt_connected": mqtt_client.is_connected() if mqtt_client else False}
@@ -396,7 +502,7 @@ def get_notifications(
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db)
 ):
-    """Retorna as notificações geradas, com filtros opcionais."""
+    """Retorna as notificações geradas e armazenadas, com filtros opcionais."""
     query = db.query(Notification)
     if truck_id:
         query = query.filter(Notification.truck_id == truck_id)
@@ -419,7 +525,7 @@ def get_notifications(
 
 @app.get("/notifications/latest/{truck_id}", response_model=List[NotificationOut], tags=["Notifications"])
 def get_latest_notifications(truck_id: str, limit: int = 10, db: Session = Depends(get_db)):
-    """Retorna as últimas notificações de um caminhão específico."""
+    """Retorna o histórico imediato de alertas de um veículo."""
     records = db.query(Notification).filter(Notification.truck_id == truck_id)\
         .order_by(desc(Notification.timestamp)).limit(limit).all()
     return records

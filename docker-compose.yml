@@ -55,15 +55,13 @@ services:
     build:
       context: ./fleet-dashboard
       args:
-        - NEXT_PUBLIC_API_URL=http://history:8000
-        - NEXT_PUBLIC_NOTIFICATIONS_URL=http://notifications:8001
+        # CORREÇÃO: Mudado de 'history' e 'notifications' para 'localhost' 
+        # porque o navegador do usuário é quem vai efetuar essas requisições HTTP
+        - NEXT_PUBLIC_API_URL=http://localhost:8000
+        - NEXT_PUBLIC_NOTIFICATIONS_URL=http://localhost:8001
         - NEXT_PUBLIC_MQTT_BROKER=ws://localhost:9002
     ports:
       - "3000:3000"
-    environment:
-      - NEXT_PUBLIC_API_URL=http://history:8000
-      - NEXT_PUBLIC_NOTIFICATIONS_URL=http://notifications:8001
-      - NEXT_PUBLIC_MQTT_BROKER=ws://localhost:9002
     depends_on:
       - history
       - mosquitto

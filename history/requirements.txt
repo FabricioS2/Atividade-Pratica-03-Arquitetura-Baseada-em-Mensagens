@@ -4,3 +4,6 @@ sqlalchemy
 paho-mqtt
 requests
 pydantic
+pyjwt
+bcrypt
+python-multipart
